@@ -1,5 +1,6 @@
 /**
- * Simulates plan-mode execute: strips grep/find/cursor before turn_start resync.
+ * Simulates plan-mode execute: strips grep/find/ls/cursor on every turn_start. Cursor must not
+ * re-add them; their replays route to inactive traces.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 

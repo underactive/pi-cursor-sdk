@@ -17,10 +17,11 @@ The native replay `Tool grep not found` failure was integration-shaped, not unit
 3. **The provider** still emitted native replay `toolUse` for `grep` / `cursor`.
 4. **pi's agent loop** looked up tools in `context.tools` and failed with `Tool grep not found`.
 
-Passing hundreds of unit tests did not prove that chain was safe. Regression coverage now includes:
+Passing hundreds of unit tests did not prove that chain was safe. The first fix (0.1.18) re-added replay tools on every `before_agent_start` / `turn_start`. That broke a second integration: Cursor widened loadouts that other extensions had narrowed on purpose, re-adding mutating `bash`, `edit`, and `write` to a read-only plan mode. Cursor now changes active tools only at its own activation edges. Provider routing (below) is the guard for stripped tools. Regression coverage now includes:
 
-- `test/index-registration.test.ts` — `before_agent_start` and `turn_start` resync after plan-style strip
-- `test/cursor-native-replay-stress.test.ts` — plan strip → resync → grep replay; inactive-tool trace fallbacks
+- `test/cursor-native-tool-activation.test.ts` — real Pi `AgentSession` read-only plan loadouts in both extension orders, plus reload and resume; the exact request tool snapshot; picker removals; core tools never added; restored loadouts adopted
+- `test/index-registration.test.ts` — Cursor-only tools register when the model becomes known before a turn, and a later plan-style strip stays stripped
+- `test/cursor-native-replay-stress.test.ts` — plan strip → `turn_start` → stripped grep/task replays route to traces; inactive-tool trace fallbacks
 - `test/cursor-provider-replay-live-run.test.ts` — inactive replay tools emit trace instead of broken `toolUse`
 - `test/cursor-native-replay-trace.test.ts` — shared inactive replay trace formatting
 - `test/cursor-native-replay-routing.test.ts` — disabled-replay disposition, absent-snapshot compatibility, and mixed active/inactive tool partitioning (other disposition behavior is exercised at the provider boundary above)
@@ -32,7 +33,7 @@ When changing provider/runtime behavior, ask whether the bug spans **pi extensio
 
 Native replay routing intentionally uses two layers:
 
-1. **Extension resync** (`before_agent_start`, `turn_start`) updates pi's active tool set via `syncRegisteredNativeCursorToolsForModel`. This fixes the common case where plan-mode execute strips `grep`/`find`/`cursor` before the next turn.
+1. **Extension activation edges** (`src/cursor-native-tool-display-registration.ts`) change pi's active tool set only when Cursor's own desired state changes: a fresh session, a switch to or from a Cursor model, or native replay registration turning off. Core `read`/`bash`/`edit`/`write` are never activated. A plan-mode execute strip of `grep`/`find`/`cursor` therefore stays stripped.
 2. **Provider routing** uses the **request tool snapshot** captured when `streamCursor()` starts (`getActiveContextToolNames` in `src/cursor-context-tools.ts`): legacy `context.tools` on stock Pi 0.84/0.85, or tools replayed by the host's public helpers on transcript-only Pi. An explicit empty snapshot is not an absent legacy snapshot. It does not read live `pi.getActiveTools()` mid-stream. The bridge intentionally retains its separate registry-owned surface.
 
 `src/cursor-native-replay-routing.ts` centralizes provider-side routing against the same `context.tools` snapshot:
@@ -46,13 +47,13 @@ Disposition outcomes:
 - `inactive_trace` — native replay tool missing from `context.tools`
 - `transcript_trace` — native replay off or non-native tool
 
-If resync runs but `context.tools` is still stale (e.g. only `read` listed), the provider must **not** emit `toolUse` for inactive tools. `test/cursor-native-replay-stress.test.ts` covers that stale-snapshot path.
+Whether `context.tools` is stale or was deliberately narrowed (e.g. only `read` listed), the provider must **not** emit `toolUse` for inactive tools. `test/cursor-native-replay-stress.test.ts` covers both the stale-snapshot path and the plan-strip path.
 
 ## Stock/transcript provider contract
 
 `test/cursor-provider-pi-context.test.ts` drives real `ModelRuntime` / `ModelRegistry` requests into `streamCursor`, with only Cursor SDK execution mocked. Run it against each supported host with all Pi peer imports pinned to that host (including nested native imports); a top-level package version alone is not resolution evidence. Cover official Pi 0.87.1, official latest, and current `fitchmultz/pi` main. The direct development Pi packages are locked 1.1.0 snapshots, not qualification targets; resolve latest stable official Pi and current `fitchmultz/pi` main once per workflow run. Their actual nested resolution is recorded with each check, including host TypeBox 1.3.27.
 
-The test covers bootstrap/incremental prompts, empty-vs-absent request tools, native replay/drain, cloud fresh/bootstrap selection, and actual host prompt serialization for context files and skills. `test/native-cursor-flow.test.mjs` additionally exercises the compiled extension through the real loader and registered Cursor provider, substituting only the external SDK transport/storage. It verifies actual bridge tool execution, pending-work idle/abort/shutdown/deadline ownership, replay without file access, persisted usage/lineage, tree, compaction, queued steering, abort and reload/disposal. `test/native-cursor-prompt.test.mjs` owns genuine native input, hidden notices, required-budget input, current attachments, custom-only continuation, equivalent conversion, payload/order-changing rejection, and GitHub comment soft guidance across bootstrap/incremental/custom-only sends. `test/native-cursor-ownership.test.mjs` owns concurrent-session contracts, including independently reopened managers for the same file, pending bridge survival across sibling reload/tree/shutdown, durable-key stability and atomic live-handle exclusion. These owners use `test/helpers/native-cursor-harness.mjs` and run in the explicit `check:compat` list and manual official-host compatibility route; the native-platform Vitest job is not execution evidence for these Node test owners. Explicit `tools` is now an allowlist, not merely an initial active set; use `defaultTools` for a native fixture that allows replay wrappers to activate. `test/native-provider.test.mjs` additionally verifies canonical `SessionManager.appendContextEdit()` plus `refreshContext()`, unchanged raw history, and conversation filtering that preserves system instructions, the current tool declaration, and explicit tool removal (the focused native slice from #271). It is offline contract evidence. Add live proof only for changed behavior that still needs real-service evidence under the cost policy above; do not rerun unchanged live lanes or infer full live coverage from offline tests.
+The test covers bootstrap/incremental prompts, empty-vs-absent request tools, native replay/drain, cloud fresh/bootstrap selection, and actual host prompt serialization for context files and skills. `test/native-cursor-flow.test.mjs` additionally exercises the compiled extension through the real loader and registered Cursor provider, substituting only the external SDK transport/storage. It verifies actual bridge tool execution, pending-work idle/abort/shutdown/deadline ownership, replay without file access, persisted usage/lineage, tree, compaction, queued steering, abort and reload/disposal. `test/native-cursor-prompt.test.mjs` owns genuine native input, hidden notices, required-budget input, current attachments, custom-only continuation, equivalent conversion, payload/order-changing rejection, and GitHub comment soft guidance across bootstrap/incremental/custom-only sends. `test/native-cursor-ownership.test.mjs` owns concurrent-session contracts, including independently reopened managers for the same file, pending bridge survival across sibling reload/tree/shutdown, durable-key stability and atomic live-handle exclusion. These owners use `test/helpers/native-cursor-harness.mjs` and run in the explicit `check:compat` list and manual official-host compatibility route; the native-platform Vitest job is not execution evidence for these Node test owners. Explicit `tools` is now an allowlist, not merely an initial active set; use `defaultTools` for a native fixture's initial loadout and include the core tools (`read`, `bash`, `edit`, `write`) its replay cases need, because Cursor activates only its optional replay wrappers. `test/native-provider.test.mjs` additionally verifies canonical `SessionManager.appendContextEdit()` plus `refreshContext()`, unchanged raw history, and conversation filtering that preserves system instructions, the current tool declaration, and explicit tool removal (the focused native slice from #271). It is offline contract evidence. Add live proof only for changed behavior that still needs real-service evidence under the cost policy above; do not rerun unchanged live lanes or infer full live coverage from offline tests.
 
 ### Native auth/catalog fixture boundary
 
@@ -194,7 +195,7 @@ Every live check should use its own `--session-dir` under the isolated tree. Do 
 | stdout-only assertions | Missed replay failures persisted only in JSONL | Scan JSONL for `Tool grep/cursor/find/ls not found` |
 | Unspecified “visible” marker source | Conversation recall became an empty-workspace search | Specify conversation history only, with no tools or file inspection; compare actual send payload and SDK events before blaming history loss |
 | Naive JSONL substring scan | Successful `read` of docs mentioning replay errors looked like failures | `validate-smoke-jsonl.mjs` only flags error `toolResult` / error assistant messages |
-| Plan strip only on first turn | Under-tested multi-turn resync | Shim strips on every `turn_start`; stress multi-turn separately |
+| Plan strip only on first turn | Under-tested multi-turn strip handling | Shim strips on every `turn_start`; stress multi-turn separately |
 | Assuming env auth equals pi auth | False "blocked" or false "pass" in CI-like shells | Check `auth.json` provider keys explicitly when needed |
 
 ## JSONL is the source of truth for replay regressions
@@ -273,7 +274,7 @@ pi --approve -e scripts/fixtures/plan-strip-shim --cursor-no-fast --model cursor
 Pass criteria:
 
 - No replay `Tool * not found` entries in JSONL
-- Native replay tools (`grep`, `find`, `read`, etc.) succeed after `turn_start` resync
+- Replay tools still active after the strip (`read`, `bash`, `edit`, `write`) replay natively; stripped `grep`/`find`/`ls`/`cursor` are not re-added and route to inactive traces
 - On non-Cursor model switch, native replay wrappers are removed except core pi tools
 
 ## Local validation ladder
@@ -442,7 +443,7 @@ Stderr output for these records requires `PI_CURSOR_SDK_EVENT_DEBUG_STDERR=1`. T
 
 **What the screenshot in [#40](https://github.com/fitchmultz/pi-cursor-sdk/issues/40) shows:** Plain assistant text that mirrors the old prompt transcript format (`Tool call (Cursor activity, call cursor-replay-…): …`) rather than a rendered pi `toolCall` card. That pattern is narration, not proof that pi failed to emit `toolcall_start` / `toolUse`. Structured tool history now uses `Historical tool request/result/error` in `src/context.ts`; an unmatched request remains a request. Regression coverage retains arguments, IDs, errors, raw messages/fingerprints, prose/code fences, prompt paths and coherent estimates. The change removes an imitable template, not prior assistant text or the underlying model behavior in #257.
 
-**Do not close #40 as duplicate of #55 without session JSONL.** #55 surfaces scrubbed SDK run failures and abort causes in the TUI. #40 can occur with no error toast when the model prints tool metadata as assistant text, when replay is display-only but the user expected real execution, when stale native replay routing or plan-strip resync gaps produce `Tool * not found` errors (see **#52**), or when started SDK tools were discarded at run end (see **#52** maintainer debug and [Discarded incomplete SDK tool calls](#discarded-incomplete-sdk-tool-calls) above). A hard **process exit** from uncaught `ConnectError` / `ETIMEDOUT` is **#43**, not #40 text echo.
+**Do not close #40 as duplicate of #55 without session JSONL.** #55 surfaces scrubbed SDK run failures and abort causes in the TUI. #40 can occur with no error toast when the model prints tool metadata as assistant text, when replay is display-only but the user expected real execution, when stale native replay routing (for example after a plan-mode strip) produces `Tool * not found` errors (see **#52**), or when started SDK tools were discarded at run end (see **#52** maintainer debug and [Discarded incomplete SDK tool calls](#discarded-incomplete-sdk-tool-calls) above). A hard **process exit** from uncaught `ConnectError` / `ETIMEDOUT` is **#43**, not #40 text echo.
 
 ### Reporter checklist (required before claiming a provider bug)
 
@@ -509,7 +510,7 @@ Start with whether pi stayed alive:
 
 Then inspect the failing assistant turn in `$SMOKE_DIR/session/*.jsonl`:
 
-1. **Error `toolResult` (`isError: true`) or error assistant message contains `Tool grep/cursor/find/ls not found`** — stale `context.tools` snapshot or plan-strip resync gap after plan-mode execute stripped active tools. Run `node scripts/validate-smoke-jsonl.mjs --replay-errors-only "$SMOKE_DIR/session"`. Optional: `display-decisions.jsonl` from `PI_CURSOR_SDK_EVENT_DEBUG=1` shows `inactive_trace` routing. Route to **#52** — not model text echo (those strings appear in persisted error records, not narrated `Tool call (` lines). See [Dual-check invariant](#dual-check-invariant-contexttools-vs-pi-active-tools).
+1. **Error `toolResult` (`isError: true`) or error assistant message contains `Tool grep/cursor/find/ls not found`** — stale `context.tools` snapshot, or routing that emitted `toolUse` for a tool a plan-mode execute stripped. Run `node scripts/validate-smoke-jsonl.mjs --replay-errors-only "$SMOKE_DIR/session"`. Optional: `display-decisions.jsonl` from `PI_CURSOR_SDK_EVENT_DEBUG=1` shows `inactive_trace` routing. Route to **#52** — not model text echo (those strings appear in persisted error records, not narrated `Tool call (` lines). See [Dual-check invariant](#dual-check-invariant-contexttools-vs-pi-active-tools).
 2. **`content` has `type: "toolCall"` blocks and matching `toolResult` rows** — pi executed or replayed tools; if the TUI still looked like plain text, capture a screenshot and pi version (possible pi TUI/display issue, not provider dispatch).
 3. **`content` is only `type: "text"` and text contains `Tool call (` / `cursor-replay-` / serialized arg keys** — model text echo of prompt transcript format; not #55, not #52 stale routing. Compare with `buildCursorPrompt()` output in the prior turn.
 4. **No `toolCall` blocks, no error toast, user expected real execution** — check whether names are replay-only (`cursor-replay-*`) or Cursor-native MCP; replay never re-runs work ([replay doc](./cursor-native-tool-replay.md)).

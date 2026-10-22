@@ -39,7 +39,8 @@ test("registered Cursor provider preserves native bridge, replay, usage, queues,
     CURSOR_API_KEY: "offline-fixture-only", PI_CURSOR_NATIVE_TOOL_DISPLAY: "1",
     PI_CURSOR_ASK_QUESTION: "0", PI_CURSOR_LOCAL_RESUME: "0",
   });
-  const settingsManager = SettingsManager.inMemory({ defaultTools: ["fixture_bridge"], compaction: { enabled: false, keepRecentTokens: 1 }, retry: { enabled: false } });
+  // Cursor never activates core tools, so replay of Cursor's read needs them in the user's loadout.
+  const settingsManager = SettingsManager.inMemory({ defaultTools: ["read", "bash", "edit", "write", "fixture_bridge"], compaction: { enabled: false, keepRecentTokens: 1 }, retry: { enabled: false } });
   const loader = new DefaultResourceLoader({
     cwd: root, agentDir, settingsManager,
     noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,

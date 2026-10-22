@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, SessionStartEvent } from "@earendil-works/pi-coding-agent";
 import { arePiToolsDisabled } from "./cursor-active-tools.js";
 import {
 	CURSOR_MODEL_ACTIVE_REPLAY_TOOL_NAMES,
@@ -35,6 +35,33 @@ export type CursorNativeToolDisplayExtensionApi = CursorNativeToolRegistryApi
 
 // Pi filters getAllTools even after registration; new/reloaded extensions receive a new API.
 const filteredRegistrations = new WeakMap<CursorNativeToolRegistryApi, Set<NativeCursorToolName>>();
+
+// Pi has no owner for the active tool set, so Cursor changes it only when its own desired state flips
+// (fresh session, model or mode change). Between those edges the loadout belongs to the user and other
+// extensions, such as a read-only plan mode or the tool picker, and lifecycle syncs never reassert it.
+interface NativeToolActivation {
+	/** Desired state last applied; undefined until the first sync after session start. */
+	applied: boolean | undefined;
+	/** Pi restored or retained this session's loadout before session_start, so it is adopted as applied. */
+	adoptLoadout: boolean;
+}
+
+const nativeToolActivations = new WeakMap<CursorNativeToolActivationApi, NativeToolActivation>();
+
+function getNativeToolActivation(pi: CursorNativeToolActivationApi): NativeToolActivation {
+	let activation = nativeToolActivations.get(pi);
+	if (!activation) {
+		activation = { applied: undefined, adoptLoadout: false };
+		nativeToolActivations.set(pi, activation);
+	}
+	return activation;
+}
+
+function startNativeToolActivation(pi: CursorNativeToolActivationApi, event: SessionStartEvent, ctx: Pick<ExtensionContext, "sessionManager">): void {
+	// Pi keeps the loadout across reload and restores a branch's recorded loadout before session_start.
+	const adoptLoadout = event.reason === "reload" || ctx.sessionManager.getBranch().some((entry) => entry.type === "message");
+	nativeToolActivations.set(pi, { applied: undefined, adoptLoadout });
+}
 
 function hasNonBuiltinTool(pi: Pick<ExtensionAPI, "getAllTools">, toolName: NativeCursorToolName): boolean {
 	const existingTool = pi.getAllTools().find((tool) => tool.name === toolName);
@@ -96,26 +123,31 @@ function removeRegisteredNonCoreNativeCursorTools(pi: CursorNativeToolActivation
 	if (changed) pi.setActiveTools([...activeToolNames]);
 }
 
-export function syncRegisteredNativeCursorToolsForModel(
-	pi: CursorNativeToolActivationApi,
-	model: ExtensionContext["model"],
-): void {
+// Core pi tools are never added: Cursor only replaces their implementation and pi keeps their active
+// state by name, so `bash`, `edit`, and `write` stay wherever the user or another extension left them.
+function addRegisteredNonCoreNativeCursorTools(pi: CursorNativeToolActivationApi): void {
 	const { registeredNativeToolSources } = getCursorNativeToolDisplayState(pi);
-	if (registeredNativeToolSources.size === 0) return;
-	if (!isCursorModel(model)) {
-		removeRegisteredNonCoreNativeCursorTools(pi);
-		return;
-	}
-	if (arePiToolsDisabled(pi)) return;
+	if (registeredNativeToolSources.size === 0 || arePiToolsDisabled(pi)) return;
 	const activeToolNames = new Set(pi.getActiveTools());
 	let changed = false;
 	for (const toolName of registeredNativeToolSources.keys()) {
+		if (isCursorCorePiReplayToolName(toolName)) continue;
 		if (isCursorReplayToolName(toolName) && !CURSOR_MODEL_ACTIVE_REPLAY_TOOL_NAMES.some((activeReplayToolName) => activeReplayToolName === toolName)) continue;
 		if (activeToolNames.has(toolName)) continue;
 		activeToolNames.add(toolName);
 		changed = true;
 	}
 	if (changed) pi.setActiveTools([...activeToolNames]);
+}
+
+function syncRegisteredNativeCursorToolActivation(pi: CursorNativeToolActivationApi, desired: boolean): void {
+	const activation = getNativeToolActivation(pi);
+	// A fresh session starts with Cursor's tools off; an adopted loadout already reflects the desired state.
+	const previous = activation.applied ?? (activation.adoptLoadout ? desired : false);
+	activation.applied = desired;
+	if (previous === desired) return;
+	if (desired) addRegisteredNonCoreNativeCursorTools(pi);
+	else removeRegisteredNonCoreNativeCursorTools(pi);
 }
 
 function ensureNativeCursorToolsRegisteredForModel(pi: CursorNativeToolRegistryApi, ctx: NativeRegistrationContext, getCwd: () => string): void {
@@ -139,20 +171,21 @@ function ensureThenSyncNativeCursorToolsForModel(pi: CursorNativeToolRegistryApi
 	}
 	const requested = isCursorNativeToolRegistrationRequested(ctx.mode);
 	setCursorNativeToolDisplayRuntimeRequested(requested, pi);
-	if (!requested) {
-		removeRegisteredNonCoreNativeCursorTools(pi);
-		return;
-	}
-	ensureNativeCursorToolsRegisteredForModel(pi, ctx, getCwd);
-	syncRegisteredNativeCursorToolsForModel(pi, ctx.model);
+	if (requested) ensureNativeCursorToolsRegisteredForModel(pi, ctx, getCwd);
+	syncRegisteredNativeCursorToolActivation(pi, requested && isCursorModel(ctx.model));
 }
 
 export function registerCursorNativeToolDisplay(pi: CursorNativeToolDisplayExtensionApi): void {
 	registerCursorNativeToolDisplayState(pi);
 	let cwd = process.cwd();
-	registerCursorModelLifecycle(pi, (ctx) => {
-		cwd = ctx.cwd;
-		ensureThenSyncNativeCursorToolsForModel(pi, ctx, () => cwd);
+	registerCursorModelLifecycle(pi, {
+		sessionStart: (event, ctx) => {
+			startNativeToolActivation(pi, event, ctx);
+		},
+		sync: (ctx) => {
+			cwd = ctx.cwd;
+			ensureThenSyncNativeCursorToolsForModel(pi, ctx, () => cwd);
+		},
 	});
 }
 

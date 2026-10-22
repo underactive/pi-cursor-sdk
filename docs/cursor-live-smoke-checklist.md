@@ -44,7 +44,7 @@ The canonical visual runner for section 4 is checked in separately:
 npm run smoke:visual -- --help
 ```
 
-For native replay regression checks (packed install, plan-strip resync, JSONL replay-error scan), use the isolated helper:
+For native replay regression checks (packed install, plan-strip trace fallback, JSONL replay-error scan), use the isolated helper:
 
 ```bash
 npm run smoke:isolated

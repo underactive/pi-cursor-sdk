@@ -62,7 +62,8 @@ export async function concurrentFixture(t, run) {
     const cwd = inheritedCwd ?? join(root, name);
     await mkdir(cwd, { recursive: true });
     const settingsManager = SettingsManager.inMemory({
-      defaultTools: ["fixture_bridge"], compaction: { enabled: false, keepRecentTokens: 1, ...compaction }, retry: { enabled: false },
+      // Cursor never activates core tools, so replay cases need them in the user's loadout.
+      defaultTools: ["read", "bash", "edit", "write", "fixture_bridge"], compaction: { enabled: false, keepRecentTokens: 1, ...compaction }, retry: { enabled: false },
     });
     const loader = new DefaultResourceLoader({
       cwd, agentDir: process.env.PI_CODING_AGENT_DIR, settingsManager,

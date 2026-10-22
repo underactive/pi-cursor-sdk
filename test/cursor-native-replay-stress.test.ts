@@ -8,7 +8,6 @@ import {
 	collectEvents,
 	collectThinkingDeltas,
 	getDoneEvent,
-	isToolCallBlock,
 	hasEventType,
 	createNativeToolDisplayPiForTest,
 	type CursorDeltaHandler,
@@ -53,20 +52,20 @@ describe("native replay stress", () => {
 			name: "grep",
 			args: { pattern: "sidebar", path: "src" },
 			result: { matches: ["src/a.css"] },
-			expected: { name: "grep", arguments: { pattern: "sidebar", path: "src" } },
+			traceMatcher: /grep|sidebar/i,
 		},
 		{
 			name: "task",
-			args: { description: "Verify plan-strip resync" },
+			args: { description: "Verify plan-strip trace" },
 			result: { result: { success: { command: "echo ok", stdout: "ok\n" } } },
-			expected: { name: "cursor", arguments: { activityTitle: "Cursor subagent", activitySummary: "Verify plan-strip resync: $ echo ok" } },
+			traceMatcher: /Cursor subagent: Verify plan-strip trace/,
 		},
-	])("plan strip then turn_start resync replays $name when context.tools match active tools", async ({ name, args, result, expected }) => {
+	])("plan strip keeps stripped replay tools inactive across turn_start and traces $name", async ({ name, args, result, traceMatcher }) => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
 		const pi = await createNativeToolDisplayPiForTest();
 		pi.setActiveTools(["read", "bash", "edit", "write"]);
 		await pi.runTurnStart({ model: CURSOR_MODEL });
-		expect(pi.getActiveTools()).toEqual(expect.arrayContaining([expected.name, "cursor"]));
+		expect(pi.getActiveTools()).toEqual(["read", "bash", "edit", "write"]);
 
 		mockCreatedAgent({
 			agentId: "agent-1",
@@ -77,10 +76,9 @@ describe("native replay stress", () => {
 		const context = makeContext();
 		context.tools = pi.getActiveTools().map((name) => ({ name, description: name, parameters: Type.Object({}) }));
 		const events = await collectEvents(streamCursor(CURSOR_MODEL, context, { apiKey: "test-key" }));
-		const done = getDoneEvent(events);
-		expect(done.reason).toBe("toolUse");
-		expect(hasEventType(events, "toolcall_start")).toBe(true);
-		expect(done.message.content.filter(isToolCallBlock)).toMatchObject([expected]);
+		expect(getDoneEvent(events).reason).toBe("stop");
+		expect(hasEventType(events, "toolcall_start")).toBe(false);
+		expect(collectThinkingDeltas(events)).toMatch(traceMatcher);
 	});
 
 	it.each([

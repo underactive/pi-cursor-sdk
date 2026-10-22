@@ -76,7 +76,7 @@ This repository is a pi provider extension that registers Cursor SDK-backed mode
 - `src/cursor-model-lifecycle.ts` owns the canonical effective Cursor model lifecycle/sync helper for `session_start`, `before_agent_start`, `model_select` with event-model override, and `turn_start`; callers keep Cursor-only filtering explicit.
 - `src/cursor-fallback-warning.ts` owns per-session Cursor fallback catalog warning activation.
 - `src/cursor-question-tool.ts` owns the bridge-exposed `cursor_ask_question` pi UI tool and the `pi-cursor-sdk:ask-question:blocked` wait-state event.
-- `src/cursor-native-tool-display-registration.ts` owns native replay tool registration and model-scoped activation.
+- `src/cursor-native-tool-display-registration.ts` owns native replay tool registration and model-scoped activation edges: it never activates core `read`/`bash`/`edit`/`write`, and lifecycle syncs never re-add an optional replay tool another extension or the user removed.
 - `src/cursor-native-replay-routing.ts` owns canonical native replay disposition (`queue_replay` / `inactive_trace` / `transcript_trace`) and context-tool partitioning for drain.
 - `src/cursor-native-replay-trace.ts` owns inactive native replay trace formatting (`title: summary`).
 - `src/cursor-pi-context.ts` owns the stock/transcript Pi context boundary; it uses Pi 0.87.1's required public replay helpers, not a local replay implementation.

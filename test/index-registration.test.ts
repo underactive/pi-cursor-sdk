@@ -323,7 +323,7 @@ describe("extension registration and discovery", () => {
 		expect(pi._activeToolNames()).toContain(CURSOR_ASK_QUESTION_TOOL_NAME);
 	});
 
-	it("registers and resyncs Cursor-only tools before a turn when session startup did not know the model", async () => {
+	it("registers Cursor-only tools before a turn when session startup did not know the model, then keeps a narrowed loadout", async () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
 		mockedDiscover.mockResolvedValueOnce([]);
 		const pi = createExtensionPi();
@@ -344,16 +344,13 @@ describe("extension registration and discovery", () => {
 		expect(pi._activeToolNames()).toContain(CURSOR_ASK_QUESTION_TOOL_NAME);
 		expect(buildCursorPiToolBridgeSnapshot(pi).piToolNameToMcpToolName.get(CURSOR_ASK_QUESTION_TOOL_NAME)).toBe("pi__cursor_ask_question");
 
+		// Plan-mode execute style reset: later Cursor lifecycle syncs leave the native replay tools inactive.
 		pi.setActiveTools(["read", "bash", "edit", "write"]);
+		await pi.runTurnStart({ model: makeModel("composer-2.5") });
+		await pi.runBeforeAgentStart({ model: makeModel("composer-2.5") });
+
 		expect(pi._activeToolNames()).not.toContain("cursor");
 		expect(pi._activeToolNames()).not.toContain("grep");
-		expect(pi._activeToolNames()).not.toContain(CURSOR_ASK_QUESTION_TOOL_NAME);
-
-		await pi.runTurnStart({ model: makeModel("composer-2.5") });
-
-		expect(pi._activeToolNames()).toContain("cursor");
-		expect(pi._activeToolNames()).toContain("grep");
-		expect(pi._activeToolNames()).toContain(CURSOR_ASK_QUESTION_TOOL_NAME);
 	});
 
 	it("does not reactivate Cursor-only tools when pi tools are disabled", async () => {

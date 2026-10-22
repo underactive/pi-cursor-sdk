@@ -209,6 +209,10 @@ Cursor native replay has one neutral replay tool name, `cursor`, plus native-com
 
 Bridge MCP names are also not pi tool names. Cursor may see names such as `pi__sem_reindex` inside the local MCP bridge, but pi session output uses the real pi tool name.
 
+## Active tool ownership
+
+Cursor never activates core `read`, `bash`, `edit`, or `write`. It adds its optional `grep`, `find`, `ls`, and `cursor` replay tools on a fresh session or a switch from a non-Cursor model, and removes them when you switch to a non-Cursor model or native replay registration turns off. Later turns do not re-add a tool that you, the tool picker, or another extension (such as a read-only plan mode) removed. Cursor activity for that tool then appears as a scrubbed trace instead of a native card. See the [UX spec](./cursor-model-ux-spec.md) for reload and resume behavior.
+
 ## Conflicts and opt out
 
 Native replay wrappers are registered only for tool names not already owned by another extension. If another extension already owns a wrapper name needed for replay, pi-cursor-sdk skips only the conflicting wrapper and uses the scrubbed Cursor activity transcript for that tool instead.

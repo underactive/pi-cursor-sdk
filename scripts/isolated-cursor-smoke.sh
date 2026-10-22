@@ -1,7 +1,7 @@
 #!/bin/bash
 # Isolated /tmp install + fail-fast live smoke for pi-cursor-sdk native replay.
 #
-# Validates packed extension load, plan-strip resync, and absence of "Tool * not found".
+# Validates packed extension load, plan-strip trace fallback, and absence of "Tool * not found".
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -39,7 +39,7 @@ PI_NONE_ENV=()
 SELF_TEST_TEMP_DIR=""
 
 print_help() {
-	printf '%s\n' 'Isolated /tmp install smoke for pi-cursor-sdk (native replay + plan-strip resync).
+	printf '%s\n' 'Isolated /tmp install smoke for pi-cursor-sdk (native replay + plan-strip trace fallback).
 
 Usage:
   ./scripts/isolated-cursor-smoke.sh

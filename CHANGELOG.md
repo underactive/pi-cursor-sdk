@@ -11,6 +11,10 @@
 - Rewrite the README around installation and everyday use, add a diagram of Cursor inside Pi, and move detailed configuration and maintainer procedures into linked reference pages.
 - Align locked development Pi snapshots and their resolved Pi cohort to 1.1.0 ([#353](https://github.com/fitchmultz/pi-cursor-sdk/pull/353)). This is development-only maintenance, not a user runtime Pi upgrade or a new npm publication. Node 24+, official Pi 0.87.1+, optional wildcard Pi/TypeBox peers, and exact unbundled Cursor SDK 1.0.37 remain unchanged; published 0.5.3 and historical qualification evidence retain their original source/version attribution.
 
+### Fixed
+
+- Stop Cursor lifecycle syncs from re-adding tools that another extension or the tool picker removed. A read-only plan mode, such as moa-fusion's `/mf-plan`, now keeps `bash`, `edit`, and `write` inactive with a Cursor model in either extension order. Cursor never activates core `read`/`bash`/`edit`/`write`, including when a `defaultTools` loadout omits them: its replay wrappers replace only their implementation, and Pi keeps their active state by name. Cursor adds or removes its optional `grep`/`find`/`ls`/`cursor` replay tools only when its own desired state changes: on a fresh session, on a switch to or from a Cursor model, or when native replay registration turns off. `before_agent_start`, `turn_start`, and switches between Cursor models leave the loadout alone. Reload and session starts with existing history keep the loadout Pi retained or restored. A replay tool removed after a plan-mode execute reset now uses the existing inactive-tool trace instead of being re-added each turn, replacing the 0.1.18 per-turn resync. Covered offline by real Pi `AgentSession` tests; no live Cursor run was performed.
+
 ## 0.5.3 - 2026-10-07
 
 ### Changed
